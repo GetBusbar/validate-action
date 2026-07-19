@@ -1,0 +1,40 @@
+name: "Validate Busbar config"
+description: "Validate a Busbar config.yaml (and provider catalog) in CI — fails the job on any error. Runs the exact load→resolve→validate the gateway runs at boot."
+author: "Busbar, Inc."
+branding:
+  icon: "check-circle"
+  color: "green"
+
+inputs:
+  config:
+    description: "Path to your config.yaml, relative to the repo root."
+    required: false
+    default: "config.yaml"
+  providers:
+    description: "Optional path to a custom providers.yaml. If empty, the provider catalog baked into the image is used."
+    required: false
+    default: ""
+  version:
+    description: "Busbar image tag to validate against. Pin this to the version you deploy for reproducibility; 'latest' rides the newest release."
+    required: false
+    default: "latest"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate config with busbar --validate
+      shell: bash
+      run: |
+        set -euo pipefail
+        img="getbusbar/busbar:${{ inputs.version }}"
+        echo "::group::pull $img"
+        docker pull -q "$img"
+        echo "::endgroup::"
+        args=( --rm --workdir /github/workspace
+               -v "$GITHUB_WORKSPACE:/github/workspace"
+               -e BUSBAR_CONFIG=${{ inputs.config }} )
+        if [ -n "${{ inputs.providers }}" ]; then
+          args+=( -e BUSBAR_PROVIDERS=${{ inputs.providers }} )
+        fi
+        echo "Validating '${{ inputs.config }}' against $img"
+        docker run "${args[@]}" "$img" --validate

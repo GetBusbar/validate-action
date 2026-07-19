@@ -1,0 +1,44 @@
+name: test
+on:
+  push:
+  pull_request:
+jobs:
+  valid-config-passes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Valid config should pass
+        uses: ./
+        with:
+          config: examples/config.yaml
+          version: "1.4.0"
+
+  invalid-config-fails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write an invalid config
+        run: |
+          cat > bad.yaml <<'EOF'
+          models:
+            broken:
+              provider: this-provider-does-not-exist
+              max_concurrent: 1
+              max_requests: -1
+          providers:
+            this-provider-does-not-exist: {}
+          EOF
+      - name: Invalid config should fail the action
+        id: run
+        continue-on-error: true
+        uses: ./
+        with:
+          config: bad.yaml
+          version: "1.4.0"
+      - name: Assert the action reported failure
+        run: |
+          if [ "${{ steps.run.outcome }}" != "failure" ]; then
+            echo "expected the action to fail on an invalid config, got '${{ steps.run.outcome }}'"
+            exit 1
+          fi
+          echo "ok: invalid config correctly failed"

@@ -1,0 +1,9 @@
+# Minimal valid Busbar config — references the anthropic provider from the baked-in catalog.
+models:
+  claude:
+    provider: anthropic
+    max_concurrent: 20
+    max_requests: -1
+providers:
+  anthropic:
+    api_key_env: ANTHROPIC_KEY
