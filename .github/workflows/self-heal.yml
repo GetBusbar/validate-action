@@ -153,11 +153,16 @@ jobs:
         run: |
           set -euo pipefail
           latest="$(gh release view --repo GetBusbar/busbar --json tagName -q .tagName)"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body_file="$(mktemp)"
+          {
+            echo "The daily self-heal workflow ran the action's own self-test (valid config passes / invalid config fails) against \`getbusbar/busbar:latest\` ($latest) and it did not pass, and no known auto-fix resolved it."
+            echo
+            echo "This needs a human look — likely a real behavioral/schema change in busbar $latest that this action (or its example fixtures) needs code changes to handle, not just a config-syntax toggle."
+            echo
+            echo "Run: $run_url"
+          } > "$body_file"
           gh issue create \
             --title "validate-action self-test fails against busbar $latest" \
-            --body "The daily self-heal workflow ran the action's own self-test (valid config passes / invalid config fails) against \`getbusbar/busbar:latest\` ($latest) and it did not pass, and no known auto-fix resolved it.
-
-This needs a human look — likely a real behavioral/schema change in busbar $latest that this action (or its example fixtures) needs code changes to handle, not just a config-syntax toggle.
-
-Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --body-file "$body_file" \
             --label bug || true
