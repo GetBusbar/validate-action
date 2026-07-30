@@ -1,0 +1,163 @@
+name: self-heal
+
+# validate-action has nothing to "bump" the way homebrew-busbar/helm-charts do: the
+# action's `version` input already defaults to "latest" (see action.yml), so it rides
+# busbar's newest published image automatically with no pinned version field anywhere
+# in this repo to edit. There is no hardcoded busbar version/tag in action.yml, README,
+# or the test fixtures — confirmed by reading them before writing this workflow.
+#
+# So the self-healing job here isn't "auto-bump a version", it's "auto-verify the action
+# still actually works against whatever busbar just published as latest, since a busbar
+# release can change config schema (see examples/config.yaml's history in this repo) in
+# ways that make the action's own self-test start failing without any change in this repo
+# at all". Daily (self-healing — a missed run just catches up the next day), on-demand,
+# and instantly on an upstream release via repository_dispatch, mirroring
+# GetBusbar/homebrew-busbar's bump-formula workflow and GetBusbar/helm-charts'
+# bump-chart.yml.
+#
+# Unlike Homebrew/Helm (bump a pinned field, no verification needed beyond "did it
+# download") and unlike the more conservative terraform-provider-busbar workflow (state
+# corruption risk if a broken release auto-publishes), this repo carries no persistent
+# state and nothing consumers apply against live infrastructure — it's a pass/fail CI
+# check. So on a genuine incompatibility this workflow auto-bumps a PATCH version and
+# moves the `v1` major tag forward itself (same low-risk pattern as Homebrew), after
+# regenerating the fixture that needs to change to match the new busbar release. If the
+# self-test still can't be made to pass automatically (i.e. the incompatibility isn't a
+# one-line fixture fix), it opens an issue instead of tagging something broken.
+on:
+  schedule:
+    - cron: "51 6 * * *"
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [upstream-release]   # optional instant trigger from a core release (needs a PAT)
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the action's own self-test against busbar:latest
+        id: selftest
+        run: |
+          set -euo pipefail
+          echo "busbar latest published release:"
+          gh release view --repo GetBusbar/busbar --json tagName,publishedAt
+
+          echo "::group::valid config should pass"
+          pass_ok=true
+          if ! docker run --rm -v "$PWD:/w" -w /w \
+              -e BUSBAR_CONFIG=examples/config.yaml \
+              getbusbar/busbar:latest --validate; then
+            pass_ok=false
+          fi
+          echo "::endgroup::"
+
+          echo "::group::invalid config should fail"
+          cat > /tmp/bad.yaml <<'EOF'
+          models:
+            broken:
+              provider: this-provider-does-not-exist
+              max_concurrent: 1
+              max_requests: -1
+          providers:
+            this-provider-does-not-exist: {}
+          EOF
+          fail_ok=true
+          if docker run --rm -v /tmp/bad.yaml:/w/bad.yaml -w /w \
+              -e BUSBAR_CONFIG=bad.yaml \
+              getbusbar/busbar:latest --validate; then
+            fail_ok=false
+          fi
+          echo "::endgroup::"
+
+          echo "valid-config-passes: $pass_ok"
+          echo "invalid-config-fails: $fail_ok"
+          if [ "$pass_ok" = true ] && [ "$fail_ok" = true ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: On failure, try the one known auto-fix (config syntax drift)
+        id: autofix
+        if: steps.selftest.outputs.ok == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The only failure mode this repo has ever hit in practice is examples/config.yaml
+          # falling behind a busbar config-schema change (api_key_env -> api_key secret-ref
+          # was the 1.4->1.5 case). If flipping that one known toggle makes both self-test
+          # cases pass again, treat it as safe to auto-fix + auto-release; anything else
+          # (a real code-level incompatibility) is left for a human via the issue below.
+          fixed=false
+          if grep -q 'api_key_env: ANTHROPIC_KEY' examples/config.yaml; then
+            sed -i 's/api_key_env: ANTHROPIC_KEY/api_key: { env: ANTHROPIC_KEY }/' examples/config.yaml
+            fixed=true
+          elif grep -q 'api_key: { env: ANTHROPIC_KEY }' examples/config.yaml; then
+            sed -i 's/api_key: { env: ANTHROPIC_KEY }/api_key_env: ANTHROPIC_KEY/' examples/config.yaml
+            fixed=true
+          fi
+
+          if [ "$fixed" != true ]; then
+            echo "no known auto-fix applies" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::group::retry with flipped api_key syntax"
+          ok=true
+          docker run --rm -v "$PWD:/w" -w /w -e BUSBAR_CONFIG=examples/config.yaml \
+            getbusbar/busbar:latest --validate || ok=false
+          echo "::endgroup::"
+
+          if [ "$ok" = true ]; then
+            echo "resolved=true" >> "$GITHUB_OUTPUT"
+          else
+            git checkout -- examples/config.yaml
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Auto-bump patch version + move v1 (fix resolved it)
+        if: steps.selftest.outputs.ok == 'false' && steps.autofix.outputs.resolved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "busbar-bot"
+          git config user.email "bot@getbusbar.com"
+          git add examples/config.yaml
+          git commit -m "auto-fix examples/config.yaml for current busbar config syntax"
+          git push
+
+          latest_tag="$(git tag -l 'v1.*' --sort=-v:refname | head -1)"
+          IFS='.' read -r major minor patch <<< "${latest_tag#v}"
+          new_tag="v${major}.${minor}.$((patch + 1))"
+          git tag "$new_tag"
+          git tag -f v1
+          git push origin "$new_tag"
+          git push origin v1 --force
+          echo "tagged $new_tag and moved v1 -> $new_tag"
+
+      - name: Open an issue (no safe auto-fix, or fix didn't resolve it)
+        if: steps.selftest.outputs.ok == 'false' && steps.autofix.outputs.resolved != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest="$(gh release view --repo GetBusbar/busbar --json tagName -q .tagName)"
+          gh issue create \
+            --title "validate-action self-test fails against busbar $latest" \
+            --body "The daily self-heal workflow ran the action's own self-test (valid config passes / invalid config fails) against \`getbusbar/busbar:latest\` ($latest) and it did not pass, and no known auto-fix resolved it.
+
+This needs a human look — likely a real behavioral/schema change in busbar $latest that this action (or its example fixtures) needs code changes to handle, not just a config-syntax toggle.
+
+Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --label bug || true

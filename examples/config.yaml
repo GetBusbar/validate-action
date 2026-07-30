@@ -1,6 +1,9 @@
 # Minimal valid Busbar config — references the anthropic provider from the baked-in catalog.
-# busbar 1.5.0+ syntax: provider credentials are a secret reference (api_key: { env: ... }),
-# not the retired api_key_env: shorthand.
+# Uses the api_key_env: shorthand, which is what the currently-published getbusbar/busbar
+# image (latest = 1.4.1 as of this writing) actually accepts. busbar 1.5.0 introduces a
+# secret-reference form (api_key: { env: ... }) but has not been released/published to
+# Docker Hub yet — see .github/workflows/test.yml and self-heal.yml for how this repo
+# tracks that transition without hardcoding a version here.
 models:
   claude:
     provider: anthropic
@@ -8,4 +11,4 @@ models:
     max_requests: -1
 providers:
   anthropic:
-    api_key: { env: ANTHROPIC_KEY }
+    api_key_env: ANTHROPIC_KEY
