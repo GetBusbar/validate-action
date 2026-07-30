@@ -18,7 +18,7 @@ jobs:
         with:
           config: config.yaml        # optional (default: config.yaml)
           # providers: providers.yaml # optional custom catalog; omit to use the baked-in one
-          # version: "1.4.0"          # optional; pin to the version you deploy
+          # version: "1.5.0"          # optional; pin to the version you deploy
 ```
 
 A malformed config, an unknown provider/model reference, or any semantic error fails the step.

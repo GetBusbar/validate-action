@@ -1,4 +1,6 @@
 # Minimal valid Busbar config — references the anthropic provider from the baked-in catalog.
+# busbar 1.5.0+ syntax: provider credentials are a secret reference (api_key: { env: ... }),
+# not the retired api_key_env: shorthand.
 models:
   claude:
     provider: anthropic
@@ -6,4 +8,4 @@ models:
     max_requests: -1
 providers:
   anthropic:
-    api_key_env: ANTHROPIC_KEY
+    api_key: { env: ANTHROPIC_KEY }

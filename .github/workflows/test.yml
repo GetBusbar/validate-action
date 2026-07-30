@@ -3,6 +3,12 @@ on:
   push:
   pull_request:
 jobs:
+  # TODO(busbar 1.5.0): examples/config.yaml uses 1.5.0 config syntax (api_key: { env } etc,
+  # see the 1.4.x->1.5.0 migration guide). No getbusbar/busbar image has published 1.5.0 syntax
+  # support yet (Docker Hub tops out at 1.4.1 as of this writing), so BOTH jobs below are pinned
+  # to "latest" rather than a fixed old tag: they will start passing automatically the moment
+  # 1.5.0 is tagged and pushed as `latest`, with no further edits needed here. Once a real 1.5.0
+  # tag exists, switch these to an explicit `version: "1.5.0"` pin for reproducibility.
   valid-config-passes:
     runs-on: ubuntu-latest
     steps:
@@ -11,7 +17,7 @@ jobs:
         uses: ./
         with:
           config: examples/config.yaml
-          version: "1.4.0"
+          version: "latest"
 
   invalid-config-fails:
     runs-on: ubuntu-latest
@@ -34,7 +40,7 @@ jobs:
         uses: ./
         with:
           config: bad.yaml
-          version: "1.4.0"
+          version: "latest"
       - name: Assert the action reported failure
         run: |
           if [ "${{ steps.run.outcome }}" != "failure" ]; then
