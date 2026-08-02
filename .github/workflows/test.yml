@@ -3,12 +3,11 @@ on:
   push:
   pull_request:
 jobs:
-  # TODO(busbar 1.5.0): examples/config.yaml uses 1.5.0 config syntax (api_key: { env } etc,
-  # see the 1.4.x->1.5.0 migration guide). No getbusbar/busbar image has published 1.5.0 syntax
-  # support yet (Docker Hub tops out at 1.4.1 as of this writing), so BOTH jobs below are pinned
-  # to "latest" rather than a fixed old tag: they will start passing automatically the moment
-  # 1.5.0 is tagged and pushed as `latest`, with no further edits needed here. Once a real 1.5.0
-  # tag exists, switch these to an explicit `version: "1.5.0"` pin for reproducibility.
+  # examples/config.yaml uses 1.5.0 config syntax (api_key: { env } etc, see the 1.4.x->1.5.0
+  # migration guide). busbar 1.5.0 shipped 2026-08-01 and is published to Docker Hub, so both
+  # jobs pin `version: "1.5.0"` for reproducibility (the plan the old TODO here described).
+  # self-heal.yml separately exercises `latest` daily, so schema drift in a future release is
+  # still caught without unpinning these.
   valid-config-passes:
     runs-on: ubuntu-latest
     steps:
@@ -17,7 +16,7 @@ jobs:
         uses: ./
         with:
           config: examples/config.yaml
-          version: "latest"
+          version: "1.5.0"
 
   invalid-config-fails:
     runs-on: ubuntu-latest
@@ -40,7 +39,7 @@ jobs:
         uses: ./
         with:
           config: bad.yaml
-          version: "latest"
+          version: "1.5.0"
       - name: Assert the action reported failure
         run: |
           if [ "${{ steps.run.outcome }}" != "failure" ]; then
