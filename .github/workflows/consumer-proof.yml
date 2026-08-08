@@ -1,0 +1,107 @@
+name: consumer-proof
+
+# TEMPORARY. Proves, from the outside, that the secret_env fix reaches someone who consumes this
+# action by tag the way a user does (`uses: GetBusbar/validate-action@<ref>`) rather than the way
+# test.yml does (`uses: ./`, which can only ever test the working tree). Three jobs: the old tag
+# fails, the new tag passes, the new tag still fails when the variable is genuinely absent.
+#
+# Deleted once green. It pins two specific tags, so as a permanent job it would freeze this repo's
+# CI against v1.0.1 forever and tell us nothing new after the first run. The durable version of
+# this coverage lives in test.yml, which exercises the working tree in both directions on every
+# push.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  # A user's config, in the form the busbar docs recommend.
+  old-ref-fails:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write a config that references a secret the documented way
+        run: |
+          cat > config.yaml <<'EOF'
+          models:
+            claude:
+              provider: anthropic
+              max_concurrent: 20
+              max_requests: -1
+          providers:
+            anthropic:
+              api_key: { env: ANTHROPIC_KEY }
+          EOF
+      # Note the env: block. Setting the variable is everything a user COULD do at v1.0.1, and it
+      # does not help, because v1.0.1 ran the container with no environment at all and had no
+      # input to forward one. That is the defect.
+      - name: Validate at the OLD ref
+        id: run
+        continue-on-error: true
+        uses: GetBusbar/validate-action@v1.0.1
+        with:
+          config: config.yaml
+          version: "1.5.3"
+        env:
+          ANTHROPIC_KEY: x
+      - name: Assert it failed
+        run: |
+          if [ "${{ steps.run.outcome }}" != "failure" ]; then
+            echo "expected v1.0.1 to fail on a { env: NAME } config, got '${{ steps.run.outcome }}'"
+            exit 1
+          fi
+          echo "ok: v1.0.1 fails on the documented secret-reference form, as reported"
+
+  new-ref-passes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write the same config
+        run: |
+          cat > config.yaml <<'EOF'
+          models:
+            claude:
+              provider: anthropic
+              max_concurrent: 20
+              max_requests: -1
+          providers:
+            anthropic:
+              api_key: { env: ANTHROPIC_KEY }
+          EOF
+      - name: Validate at the NEW ref with secret_env
+        uses: GetBusbar/validate-action@v1.0.2
+        with:
+          config: config.yaml
+          version: "1.5.3"
+          secret_env: ANTHROPIC_KEY
+        env:
+          ANTHROPIC_KEY: x
+
+  new-ref-still-fails-without-the-variable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write the same config
+        run: |
+          cat > config.yaml <<'EOF'
+          models:
+            claude:
+              provider: anthropic
+              max_concurrent: 20
+              max_requests: -1
+          providers:
+            anthropic:
+              api_key: { env: ANTHROPIC_KEY }
+          EOF
+      # Same config, same secret_env, no env: block. A fix that made validation pass
+      # unconditionally would be worse than the bug.
+      - name: Validate at the NEW ref with the variable absent
+        id: run
+        continue-on-error: true
+        uses: GetBusbar/validate-action@v1.0.2
+        with:
+          config: config.yaml
+          version: "1.5.3"
+          secret_env: ANTHROPIC_KEY
+      - name: Assert it still failed
+        run: |
+          if [ "${{ steps.run.outcome }}" != "failure" ]; then
+            echo "expected failure with ANTHROPIC_KEY absent, got '${{ steps.run.outcome }}'"
+            exit 1
+          fi
+          echo "ok: still fails closed when the referenced variable is not set"
