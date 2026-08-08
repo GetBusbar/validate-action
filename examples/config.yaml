@@ -1,9 +1,11 @@
 # Minimal valid Busbar config — references the anthropic provider from the baked-in catalog.
 # Uses the secret-reference form (api_key: { env: ... }) introduced by the busbar 1.5.0 config
-# redesign, which is what the currently-published getbusbar/busbar image (latest = 1.5.0,
-# released 2026-08-01) accepts. The pre-1.5.0 api_key_env: shorthand is rejected by 1.5.0 with
-# a "run busbar --migrate-config" error — see .github/workflows/test.yml and self-heal.yml for
-# how this repo tracks schema drift without hardcoding a version here.
+# redesign. The pre-1.5.0 api_key_env: shorthand is rejected from 1.5.0 on with a
+# "run busbar --migrate-config" error; see .github/workflows/test.yml and self-heal.yml for
+# how this repo tracks schema drift.
+#
+# From busbar 1.5.3 --validate RESOLVES this reference, so validating this file needs
+# ANTHROPIC_KEY set. Any placeholder will do; test.yml passes `x`.
 models:
   claude:
     provider: anthropic

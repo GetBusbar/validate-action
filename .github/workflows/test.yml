@@ -4,10 +4,14 @@ on:
   pull_request:
 jobs:
   # examples/config.yaml uses 1.5.0 config syntax (api_key: { env } etc, see the 1.4.x->1.5.0
-  # migration guide). busbar 1.5.0 shipped 2026-08-01 and is published to Docker Hub, so both
-  # jobs pin `version: "1.5.0"` for reproducibility (the plan the old TODO here described).
-  # self-heal.yml separately exercises `latest` daily, so schema drift in a future release is
-  # still caught without unpinning these.
+  # migration guide). Both jobs pin a busbar version for reproducibility; self-heal.yml
+  # separately exercises `latest` daily, so schema drift in a future release is still caught
+  # without unpinning these.
+  #
+  # Pinned to 1.5.3, the current release, NOT 1.5.0. 1.5.3 is where `--validate` began resolving
+  # secret references, which is exactly the behaviour `secret_env` exists to serve, so pinning at
+  # 1.5.0 meant this repo's own CI could not see the bug that made the action unusable. A pin is
+  # only worth having if it points at what users actually run.
   valid-config-passes:
     runs-on: ubuntu-latest
     steps:
@@ -16,7 +20,34 @@ jobs:
         uses: ./
         with:
           config: examples/config.yaml
-          version: "1.5.0"
+          version: "1.5.3"
+          secret_env: ANTHROPIC_KEY
+        env:
+          # A placeholder: --validate checks that the reference resolves, not that the key works.
+          ANTHROPIC_KEY: x
+
+  # The other half of the same contract. A `secret_env` that made validation pass regardless of
+  # whether the variable is there would be worse than the bug it fixes, so assert the config that
+  # names a variable still fails when the variable is absent.
+  missing-secret-fails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Config naming an unset variable should fail
+        id: run
+        continue-on-error: true
+        uses: ./
+        with:
+          config: examples/config.yaml
+          version: "1.5.3"
+          secret_env: ANTHROPIC_KEY
+      - name: Assert the action reported failure
+        run: |
+          if [ "${{ steps.run.outcome }}" != "failure" ]; then
+            echo "expected failure when ANTHROPIC_KEY is unset, got '${{ steps.run.outcome }}'"
+            exit 1
+          fi
+          echo "ok: unresolvable secret reference correctly failed"
 
   invalid-config-fails:
     runs-on: ubuntu-latest
@@ -39,7 +70,7 @@ jobs:
         uses: ./
         with:
           config: bad.yaml
-          version: "1.5.0"
+          version: "1.5.3"
       - name: Assert the action reported failure
         run: |
           if [ "${{ steps.run.outcome }}" != "failure" ]; then

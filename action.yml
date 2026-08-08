@@ -35,17 +35,27 @@ runs:
   steps:
     - name: Validate config with busbar --validate
       shell: bash
+      # Inputs reach the script as environment variables rather than being interpolated into the
+      # source of the script. A caller may legitimately wire an input to something it does not
+      # control (`config: ${{ github.event.inputs.path }}`), and `${{ }}` splices raw text into
+      # bash before bash ever sees it, so a value containing a quote or `$(...)` would run as
+      # code. As variables they are just data, and a path with a space stays one argument.
+      env:
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_PROVIDERS: ${{ inputs.providers }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_SECRET_ENV: ${{ inputs.secret_env }}
       run: |
         set -euo pipefail
-        img="getbusbar/busbar:${{ inputs.version }}"
+        img="getbusbar/busbar:$INPUT_VERSION"
         echo "::group::pull $img"
         docker pull -q "$img"
         echo "::endgroup::"
         args=( --rm --workdir /github/workspace
                -v "$GITHUB_WORKSPACE:/github/workspace"
-               -e BUSBAR_CONFIG=${{ inputs.config }} )
-        if [ -n "${{ inputs.providers }}" ]; then
-          args+=( -e BUSBAR_PROVIDERS=${{ inputs.providers }} )
+               -e "BUSBAR_CONFIG=$INPUT_CONFIG" )
+        if [ -n "$INPUT_PROVIDERS" ]; then
+          args+=( -e "BUSBAR_PROVIDERS=$INPUT_PROVIDERS" )
         fi
         # Forward the named variables INTO the container. `-e NAME` with no `=value` passes the
         # value through from this step's environment, so a secret is never expanded into the log or
@@ -56,8 +66,9 @@ runs:
         # upstream request, and it should say so before it boots. But this action ran the container
         # with NO environment at all, so a config using the documented `{ env: NAME }` form went from
         # passing to failing with nothing the user could do about it.
-        for name in $(printf '%s' "${{ inputs.secret_env }}" | tr ',' ' '); do
+        # Word-splitting is deliberate here: the input is a list of names.
+        for name in $(printf '%s' "$INPUT_SECRET_ENV" | tr ',' ' '); do
           args+=( -e "$name" )
         done
-        echo "Validating '${{ inputs.config }}' against $img"
+        echo "Validating '$INPUT_CONFIG' against $img"
         docker run "${args[@]}" "$img" --validate
