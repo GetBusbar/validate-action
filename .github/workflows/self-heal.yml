@@ -51,7 +51,7 @@ jobs:
           echo "::group::valid config should pass"
           pass_ok=true
           if ! docker run --rm -v "$PWD:/w" -w /w \
-              -e BUSBAR_CONFIG=examples/config.yaml \
+              -e BUSBAR_CONFIG=examples/config.yaml -e ANTHROPIC_KEY=x \
               getbusbar/busbar:latest --validate; then
             pass_ok=false
           fi
@@ -114,7 +114,7 @@ jobs:
 
           echo "::group::retry with flipped api_key syntax"
           ok=true
-          docker run --rm -v "$PWD:/w" -w /w -e BUSBAR_CONFIG=examples/config.yaml \
+          docker run --rm -v "$PWD:/w" -w /w -e BUSBAR_CONFIG=examples/config.yaml -e ANTHROPIC_KEY=x \
             getbusbar/busbar:latest --validate || ok=false
           echo "::endgroup::"
 

@@ -18,6 +18,17 @@ inputs:
     description: "Busbar image tag to validate against. Pin this to the version you deploy for reproducibility; 'latest' rides the newest release."
     required: false
     default: "latest"
+  secret_env:
+    description: >-
+      Names of environment variables your config references as `{ env: NAME }`, whitespace or comma
+      separated, forwarded from this step's environment into the container. From busbar 1.5.3
+      `--validate` RESOLVES those references and fails when one cannot resolve, so a config naming a
+      variable needs that variable present. Set them on this step via `env:` and list them here.
+      Placeholders are fine: validation checks that a reference resolves, not that the credential
+      works, so a value like `x` is enough to prove the config's shape in CI without giving the job a
+      real key.
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -36,5 +47,17 @@ runs:
         if [ -n "${{ inputs.providers }}" ]; then
           args+=( -e BUSBAR_PROVIDERS=${{ inputs.providers }} )
         fi
+        # Forward the named variables INTO the container. `-e NAME` with no `=value` passes the
+        # value through from this step's environment, so a secret is never expanded into the log or
+        # into the process table.
+        #
+        # busbar 1.5.3 made `--validate` RESOLVE `env:` and `file:` secret references and exit 1 when
+        # one cannot resolve, which is right: a gateway whose credentials are missing fails every
+        # upstream request, and it should say so before it boots. But this action ran the container
+        # with NO environment at all, so a config using the documented `{ env: NAME }` form went from
+        # passing to failing with nothing the user could do about it.
+        for name in $(printf '%s' "${{ inputs.secret_env }}" | tr ',' ' '); do
+          args+=( -e "$name" )
+        done
         echo "Validating '${{ inputs.config }}' against $img"
         docker run "${args[@]}" "$img" --validate
