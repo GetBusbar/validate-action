@@ -39,7 +39,14 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 so the tags are actually present. The auto-bump step below derives the next
+      # patch version from `git tag -l 'v1.*'`, and actions/checkout at its defaults fetches with
+      # --no-tags --depth=1: that list came back EMPTY, so the bump computed `v${major}.${minor}.$((
+      # patch + 1))` from three empty fields and produced the literal string "v..1" — which git
+      # rejects as a tag name, but only AFTER the auto-fix commit has already been pushed to main.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Run the action's own self-test against busbar:latest
         id: selftest
@@ -113,9 +120,37 @@ jobs:
           fi
 
           echo "::group::retry with flipped api_key syntax"
-          ok=true
+          # BOTH halves of the contract are re-checked, not just the valid-config half. Re-running
+          # only "valid config passes" made this step declare `resolved=true` for a failure it had
+          # not fixed and could not fix: if busbar:latest regresses so that `--validate` accepts
+          # EVERYTHING, the self-test correctly goes ok=false via fail_ok, the api_key flip is
+          # irrelevant to that, and a valid-config-only retry passes trivially — so the workflow
+          # committed a needlessly mangled fixture, tagged a new patch version, force-moved the `v1`
+          # tag every consumer of this action rides, and opened no issue. The invalid-config half is
+          # precisely the half that detects that class of regression, so it must gate the retry too.
+          pass_ok=true
           docker run --rm -v "$PWD:/w" -w /w -e BUSBAR_CONFIG=examples/config.yaml -e ANTHROPIC_KEY=x \
-            getbusbar/busbar:latest --validate || ok=false
+            getbusbar/busbar:latest --validate || pass_ok=false
+
+          cat > /tmp/bad.yaml <<'EOF'
+          models:
+            broken:
+              provider: this-provider-does-not-exist
+              max_concurrent: 1
+              max_requests: -1
+          providers:
+            this-provider-does-not-exist: {}
+          EOF
+          fail_ok=true
+          if docker run --rm -v /tmp/bad.yaml:/w/bad.yaml -w /w \
+              -e BUSBAR_CONFIG=bad.yaml \
+              getbusbar/busbar:latest --validate; then
+            fail_ok=false
+          fi
+          echo "retry valid-config-passes: $pass_ok"
+          echo "retry invalid-config-fails: $fail_ok"
+          ok=false
+          if [ "$pass_ok" = true ] && [ "$fail_ok" = true ]; then ok=true; fi
           echo "::endgroup::"
 
           if [ "$ok" = true ]; then
@@ -138,6 +173,13 @@ jobs:
           git push
 
           latest_tag="$(git tag -l 'v1.*' --sort=-v:refname | head -1)"
+          # Floor assertion: an empty tag list is not "start from zero", it means the tags were
+          # never fetched (or the naming scheme moved). Without this, three empty fields flow into
+          # the arithmetic below and produce the literal tag name "v..1".
+          case "$latest_tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::auto-bump: 'git tag -l v1.*' produced '${latest_tag}', not a vMAJOR.MINOR.PATCH tag. Refusing to compute a release tag from it." >&2; exit 1 ;;
+          esac
           IFS='.' read -r major minor patch <<< "${latest_tag#v}"
           new_tag="v${major}.${minor}.$((patch + 1))"
           git tag "$new_tag"
@@ -162,7 +204,11 @@ jobs:
             echo
             echo "Run: $run_url"
           } > "$body_file"
+          # No `|| true`. This is the ESCALATION path — the only thing that tells a human the daily
+          # self-test is failing. Swallowing its failure (a missing `bug` label, a permissions or
+          # rate-limit error) left the job green with nobody informed, which is the exact outcome
+          # this step exists to prevent.
           gh issue create \
             --title "validate-action self-test fails against busbar $latest" \
             --body-file "$body_file" \
-            --label bug || true
+            --label bug
