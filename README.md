@@ -1,5 +1,8 @@
 # validate-action — Busbar config validation for CI
 
+[![CI](https://github.com/GetBusbar/validate-action/actions/workflows/test.yml/badge.svg)](https://github.com/GetBusbar/validate-action/actions/workflows/test.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 A GitHub Action that runs `busbar --validate` on your `config.yaml` and **fails the job on any error** — the same load → resolve → validate the gateway runs at boot. Keep your Busbar config in git and this catches a bad edit before it ships.
 
 It runs the official [`getbusbar/busbar`](https://hub.docker.com/r/getbusbar/busbar) image, so there is nothing to install and no separate binary to keep current. The provider catalog ships inside the image, so a bare `config.yaml` validates out of the box.
