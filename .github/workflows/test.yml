@@ -12,7 +12,7 @@ jobs:
   valid-config-passes:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Valid config should pass
         uses: ./
         with:
@@ -22,7 +22,7 @@ jobs:
   invalid-config-fails:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Write an invalid config
         run: |
           cat > bad.yaml <<'EOF'
