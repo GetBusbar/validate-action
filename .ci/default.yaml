@@ -1,0 +1,40 @@
+# Imported from .github/workflows/test.yml by `modernci import github`, with the local action
+# (uses: ./) written out as its docker commands (action.yml's composite step).
+to: dev
+on:
+  move: [valid-config-passes, invalid-config-fails]
+  push: [valid-config-passes, invalid-config-fails]
+  landed: [valid-config-passes, invalid-config-fails]
+checks:
+  valid-config-passes:
+    # Pinned to "latest" as in the workflow (TODO(busbar 1.5.0) there).
+    run: |
+      set -euo pipefail
+      img="getbusbar/busbar:latest"
+      docker pull -q "$img"
+      docker run --rm --workdir /github/workspace -v "$PWD:/github/workspace" -e BUSBAR_CONFIG=examples/config.yaml "$img" --validate
+    requires:
+    - docker
+  invalid-config-fails:
+    run: |
+      set -eu
+      cat > bad.yaml <<'BAD'
+      models:
+        broken:
+          provider: this-provider-does-not-exist
+          max_concurrent: 1
+          max_requests: -1
+      providers:
+        this-provider-does-not-exist: {}
+      BAD
+      img="getbusbar/busbar:latest"
+      docker pull -q "$img"
+      if docker run --rm --workdir /github/workspace -v "$PWD:/github/workspace" -e BUSBAR_CONFIG=bad.yaml "$img" --validate; then
+        echo "expected the action to fail on an invalid config, got 'success'"
+        exit 1
+      fi
+      echo "ok: invalid config correctly failed"
+    requires:
+    - docker
+env:
+  CI: 'true'
