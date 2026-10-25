@@ -18,23 +18,57 @@ inputs:
     description: "Busbar image tag to validate against. Pin this to the version you deploy for reproducibility; 'latest' rides the newest release."
     required: false
     default: "latest"
+  secret_env:
+    description: >-
+      Names of environment variables your config references as `{ env: NAME }`, whitespace or comma
+      separated, forwarded from this step's environment into the container. From busbar 1.5.3
+      `--validate` RESOLVES those references and fails when one cannot resolve, so a config naming a
+      variable needs that variable present. Set them on this step via `env:` and list them here.
+      Placeholders are fine: validation checks that a reference resolves, not that the credential
+      works, so a value like `x` is enough to prove the config's shape in CI without giving the job a
+      real key.
+    required: false
+    default: ""
 
 runs:
   using: "composite"
   steps:
     - name: Validate config with busbar --validate
       shell: bash
+      # Inputs reach the script as environment variables rather than being interpolated into the
+      # source of the script. A caller may legitimately wire an input to something it does not
+      # control (`config: ${{ github.event.inputs.path }}`), and `${{ }}` splices raw text into
+      # bash before bash ever sees it, so a value containing a quote or `$(...)` would run as
+      # code. As variables they are just data, and a path with a space stays one argument.
+      env:
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_PROVIDERS: ${{ inputs.providers }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_SECRET_ENV: ${{ inputs.secret_env }}
       run: |
         set -euo pipefail
-        img="getbusbar/busbar:${{ inputs.version }}"
+        img="getbusbar/busbar:$INPUT_VERSION"
         echo "::group::pull $img"
         docker pull -q "$img"
         echo "::endgroup::"
         args=( --rm --workdir /github/workspace
                -v "$GITHUB_WORKSPACE:/github/workspace"
-               -e BUSBAR_CONFIG=${{ inputs.config }} )
-        if [ -n "${{ inputs.providers }}" ]; then
-          args+=( -e BUSBAR_PROVIDERS=${{ inputs.providers }} )
+               -e "BUSBAR_CONFIG=$INPUT_CONFIG" )
+        if [ -n "$INPUT_PROVIDERS" ]; then
+          args+=( -e "BUSBAR_PROVIDERS=$INPUT_PROVIDERS" )
         fi
-        echo "Validating '${{ inputs.config }}' against $img"
+        # Forward the named variables INTO the container. `-e NAME` with no `=value` passes the
+        # value through from this step's environment, so a secret is never expanded into the log or
+        # into the process table.
+        #
+        # busbar 1.5.3 made `--validate` RESOLVE `env:` and `file:` secret references and exit 1 when
+        # one cannot resolve, which is right: a gateway whose credentials are missing fails every
+        # upstream request, and it should say so before it boots. But this action ran the container
+        # with NO environment at all, so a config using the documented `{ env: NAME }` form went from
+        # passing to failing with nothing the user could do about it.
+        # Word-splitting is deliberate here: the input is a list of names.
+        for name in $(printf '%s' "$INPUT_SECRET_ENV" | tr ',' ' '); do
+          args+=( -e "$name" )
+        done
+        echo "Validating '$INPUT_CONFIG' against $img"
         docker run "${args[@]}" "$img" --validate

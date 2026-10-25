@@ -1,0 +1,25 @@
+listen: "127.0.0.1:18080"
+admin_listen: "127.0.0.1:18081"
+auth:
+  chain: [keys]
+  admin_auth:
+    - admin-tokens: { token: { env: E2E_ADMIN_TOKEN } }
+limits:
+  request_body_max_bytes: 536870912
+plugins:
+  enabled: true
+  dir: /tmp/plugins
+  trust:
+    allow_unsigned: true
+providers:
+  mock:
+    api_key: { env: MOCK_KEY }
+models:
+  test-model:
+    provider: mock
+global_hooks:
+  - { module: headroom, kind: gate, prompt: rw, timeout_ms: 500 }
+pools:
+  p:
+    members:
+      - { model: test-model, weight: 1 }

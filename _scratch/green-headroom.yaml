@@ -1,0 +1,43 @@
+# busbar 1.5.3 config, migrated by `busbar --migrate-config`.
+# The items below need a decision; `busbar --validate` must pass.
+# TODO(migrate): global_hooks inline instance lifted to a named hook 'headroom' + a pools.hooks all-pools reference; review the auto-generated name
+
+listen: 127.0.0.1:18080
+admin_listen: 127.0.0.1:18081
+hooks:
+  headroom:
+    module: headroom
+    kind: gate
+    timeout_ms: 500
+    prompt: rw
+limits:
+  request_body_max_bytes: 536870912
+plugins:
+  enabled: true
+  dir: /tmp/plugins
+  trust:
+    allow_unsigned: true
+providers:
+  mock:
+    api_key:
+      env: MOCK_KEY
+models:
+  test-model:
+    provider: mock
+pools:
+  p:
+    members:
+    - model: test-model
+      weight: 1
+  hooks:
+  - headroom
+auth:
+  chain:
+  - keys
+  admin_auth:
+  - admin-tokens
+identity-providers:
+  admin-tokens:
+    module: admin-tokens
+    token:
+      env: E2E_ADMIN_TOKEN
