@@ -12,7 +12,9 @@ checks:
       set -euo pipefail
       img="getbusbar/busbar:latest"
       docker pull -q "$img"
-      docker run --rm --workdir /github/workspace -v "$PWD:/github/workspace" -e BUSBAR_CONFIG=examples/config.yaml "$img" --validate
+      # ANTHROPIC_KEY=x is a placeholder, as test.yml sets it: --validate checks that the reference
+      # resolves, not that the key works. invalid-config-fails stays without it.
+      docker run --rm --workdir /github/workspace -v "$PWD:/github/workspace" -e BUSBAR_CONFIG=examples/config.yaml -e ANTHROPIC_KEY=x "$img" --validate
     requires:
     - docker
   invalid-config-fails:
