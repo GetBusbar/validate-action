@@ -2,6 +2,9 @@ name: test
 on:
   push:
   pull_request:
+permissions:
+  contents: read
+
 jobs:
   # examples/config.yaml uses 1.5.0 config syntax (api_key: { env } etc, see the 1.4.x->1.5.0
   # migration guide). Both jobs pin a busbar version for reproducibility; self-heal.yml
@@ -15,7 +18,7 @@ jobs:
   valid-config-passes:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Valid config should pass
         uses: ./
         with:
@@ -52,7 +55,7 @@ jobs:
   invalid-config-fails:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Write an invalid config
         run: |
           cat > bad.yaml <<'EOF'
