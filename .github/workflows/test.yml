@@ -35,7 +35,7 @@ jobs:
   missing-secret-fails:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Config naming an unset variable should fail
         id: run
         continue-on-error: true
