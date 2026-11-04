@@ -31,15 +31,22 @@ on:
   repository_dispatch:
     types: [upstream-release]   # optional instant trigger from a core release (needs a PAT)
 
-permissions:
-  contents: write
-  issues: write
+concurrency:
+  group: self-heal
+  cancel-in-progress: false
+
+permissions: {}
 
 jobs:
   verify:
+    permissions:
+      contents: write
+      issues: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Run the action's own self-test against busbar:latest
         id: selftest
@@ -116,6 +123,10 @@ jobs:
           ok=true
           docker run --rm -v "$PWD:/w" -w /w -e BUSBAR_CONFIG=examples/config.yaml -e ANTHROPIC_KEY=x \
             getbusbar/busbar:latest --validate || ok=false
+          if docker run --rm -v /tmp/bad.yaml:/w/bad.yaml -w /w -e BUSBAR_CONFIG=bad.yaml \
+              getbusbar/busbar:latest --validate; then
+            ok=false
+          fi
           echo "::endgroup::"
 
           if [ "$ok" = true ]; then
@@ -133,6 +144,11 @@ jobs:
           set -euo pipefail
           git config user.name "busbar-bot"
           git config user.email "bot@getbusbar.com"
+          old_major="$(git ls-remote origin refs/tags/v1 | cut -f1)"
+          latest_tag="$(git tag -l 'v1.*' --sort=-v:refname | head -1)"
+          if [[ ! "$latest_tag" =~ ^v1\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::missing stable v1 release tag"; exit 1
+          fi
           git add examples/config.yaml
           git commit -m "auto-fix examples/config.yaml for current busbar config syntax"
           git push
@@ -143,7 +159,7 @@ jobs:
           git tag "$new_tag"
           git tag -f v1
           git push origin "$new_tag"
-          git push origin v1 --force
+          git push origin refs/tags/v1 --force-with-lease="refs/tags/v1:$old_major"
           echo "tagged $new_tag and moved v1 -> $new_tag"
 
       - name: Open an issue (no safe auto-fix, or fix didn't resolve it)
@@ -162,7 +178,11 @@ jobs:
             echo
             echo "Run: $run_url"
           } > "$body_file"
-          gh issue create \
-            --title "validate-action self-test fails against busbar $latest" \
-            --body-file "$body_file" \
-            --label bug || true
+          title="validate-action self-test fails against busbar $latest"
+          issues="$(gh issue list --state open --search "$title in:title" --json number,title)"
+          existing="$(jq -r --arg title "$title" '[.[] | select(.title == $title)][0].number // empty' <<< "$issues")"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$body_file"
+          else
+            gh issue create --title "$title" --body-file "$body_file" --label bug
+          fi
