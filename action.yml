@@ -47,6 +47,19 @@ runs:
         INPUT_SECRET_ENV: ${{ inputs.secret_env }}
       run: |
         set -euo pipefail
+        if [[ ! "$INPUT_VERSION" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]]; then
+          echo "::error::version must be a valid Docker image tag"
+          exit 1
+        fi
+        names=()
+        read -r -a names <<< "$(printf '%s' "$INPUT_SECRET_ENV" | tr ',[:space:]' ' ')"
+        for name in "${names[@]}"; do
+          if [[ ! "$name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] ||
+             [[ "$name" == BUSBAR_CONFIG || "$name" == BUSBAR_PROVIDERS ]]; then
+            echo "::error::secret_env must contain variable names and cannot override BUSBAR_CONFIG or BUSBAR_PROVIDERS"
+            exit 1
+          fi
+        done
         img="getbusbar/busbar:$INPUT_VERSION"
         echo "::group::pull $img"
         docker pull -q "$img"
@@ -66,9 +79,13 @@ runs:
         # upstream request, and it should say so before it boots. But this action ran the container
         # with NO environment at all, so a config using the documented `{ env: NAME }` form went from
         # passing to failing with nothing the user could do about it.
-        # Word-splitting is deliberate here: the input is a list of names.
-        for name in $(printf '%s' "$INPUT_SECRET_ENV" | tr ',' ' '); do
+        for name in "${names[@]}"; do
           args+=( -e "$name" )
         done
-        echo "Validating '$INPUT_CONFIG' against $img"
-        docker run "${args[@]}" "$img" --validate
+        printf 'Validating %q against %q\n' "$INPUT_CONFIG" "$img"
+        stop_token="$(uuidgen)"
+        printf '::stop-commands::%s\n' "$stop_token"
+        status=0
+        docker run "${args[@]}" "$img" --validate || status=$?
+        printf '::%s::\n' "$stop_token"
+        exit "$status"
